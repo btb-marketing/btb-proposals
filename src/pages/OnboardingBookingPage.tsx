@@ -1,0 +1,151 @@
+import { useParams, useLocation, useSearch } from 'wouter'
+import { useEffect } from 'react'
+import { loadProposal } from '../data/loader'
+import { useBrandMeta } from '../hooks/useBrandMeta'
+
+// Calendly links by brand
+const CALENDLY_LINKS: Record<string, string> = {
+  'zach-gallis': 'https://calendly.com/belowtheboard/onboarding-cg',
+  'below-the-board':   'https://calendly.com/belowtheboard/onboarding',
+}
+
+export default function OnboardingBookingPage() {
+  const params = useParams<{ slug: string }>()
+  const slug = params.slug || ''
+  const search = useSearch()
+  const [, navigate] = useLocation()
+
+  const proposal = loadProposal(slug)
+  useBrandMeta({
+    brand: proposal?.brand ?? 'zach-gallis',
+    pageTitle: 'Book Your Onboarding Call',
+  })
+
+  const searchParams = new URLSearchParams(search)
+  const pkgId = searchParams.get('pkg') || ''
+  const addonId = searchParams.get('addon') || ''
+  const email = searchParams.get('email') || ''
+
+  const brand = proposal?.brand || (proposal?.meta as any)?.brand || 'zach-gallis'
+  const calendlyUrl = CALENDLY_LINKS[brand] || CALENDLY_LINKS['zach-gallis']
+
+  const goToStep5 = () => {
+    navigate(`/proposal/${slug}/onboarding-form?pkg=${pkgId}&addon=${addonId}&email=${encodeURIComponent(email)}`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Embed Calendly widget script + listen for booking completion
+  useEffect(() => {
+    // Load the Calendly embed script if not already loaded
+    const existing = document.getElementById('calendly-script')
+    if (!existing) {
+      const script = document.createElement('script')
+      script.id = 'calendly-script'
+      script.src = 'https://assets.calendly.com/assets/external/widget.js'
+      script.async = true
+      document.head.appendChild(script)
+    }
+
+    // Listen for the Calendly "event_scheduled" message
+    // Calendly fires a postMessage when the booking is confirmed
+    const handleCalendlyEvent = (e: MessageEvent) => {
+      if (
+        e.origin === 'https://calendly.com' &&
+        e.data?.event === 'calendly.event_scheduled'
+      ) {
+        // Fire call-booked notification (fire-and-forget)
+        const invitee = e.data?.payload?.invitee
+        const eventTime = e.data?.payload?.event?.start_time
+        fetch('/api/send-call-booked', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientName: invitee?.name || proposal?.meta?.preparedFor || slug,
+            clientEmail: invitee?.email || email || undefined,
+            slug,
+            brand,
+            callDate: eventTime ? new Date(eventTime).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Vancouver' }) : undefined,
+            callTime: eventTime ? new Date(eventTime).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Vancouver' }) : undefined,
+          }),
+        }).catch(() => {})
+        // Small delay so user sees the confirmation screen briefly
+        setTimeout(() => {
+          goToStep5()
+        }, 2500)
+      }
+    }
+
+    window.addEventListener('message', handleCalendlyEvent)
+    return () => window.removeEventListener('message', handleCalendlyEvent)
+  }, [slug, pkgId, addonId, email])
+
+  if (!proposal) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
+        <p>Proposal not found.</p>
+      </div>
+    )
+  }
+
+  const steps = [
+    { n: 1, label: 'Review' },
+    { n: 2, label: 'Agreement' },
+    { n: 3, label: 'Billing' },
+    { n: 4, label: 'Book Call' },
+    { n: 5, label: 'Onboarding' },
+  ]
+
+  return (
+    <div className="funnel-page">
+      {/* Progress Steps */}
+      <div className="funnel-page-header">
+        <div className="funnel-page-steps">
+          {steps.map(({ n, label }) => (
+            <div
+              key={n}
+              className={`funnel-page-step${n <= 4 ? ' active' : ''}${n === 4 ? ' current' : ''}`}
+            >
+              <div className="funnel-page-step-dot">{n <= 3 ? '✓' : n}</div>
+              <div className="funnel-page-step-label">{label}</div>
+              {n < 5 && <div className="funnel-page-step-line" />}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="funnel-page-body onboarding-booking-body">
+        <div className="funnel-page-eyebrow">Step 4 of 5</div>
+        <h1 className="funnel-page-title display">Book Your Onboarding Call</h1>
+        <p className="funnel-page-subtitle">
+          Your agreement is signed and your billing details are saved. The next step is to book your onboarding call so we can get your campaign launched.
+        </p>
+
+        {/* Calendly Inline Embed
+            primary_color=0d0d0d — dark charcoal so buttons are readable on Calendly's white bg
+            text_color=0d0d0d — dark text
+            background_color=ffffff — keep Calendly's default white bg (matches their design)
+        */}
+        <div
+          className="calendly-inline-widget"
+          data-url={`${calendlyUrl}?hide_gdpr_banner=1&primary_color=0d0d0d&text_color=0d0d0d&background_color=ffffff${email ? `&email=${encodeURIComponent(email)}` : ''}`}
+          style={{ minWidth: '320px', height: '700px' }}
+        />
+
+        {/* Skip option */}
+        <div className="onboarding-booking-skip">
+          <p>Can't book right now? You'll receive a link to schedule your call via email.</p>
+          <button className="btn-outline" onClick={goToStep5}>
+            Skip for Now — Fill Out Onboarding Form <span className="arrow">→</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="funnel-page-footer">
+        <span className="funnel-page-footer-logo display">CG.</span>
+        <span className="funnel-page-footer-text">© {new Date().getFullYear()} Zach Gallis · All Rights Reserved</span>
+      </div>
+    </div>
+  )
+}

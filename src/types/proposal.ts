@@ -2,6 +2,7 @@ export interface TeamMember {
   name: string;
   title: string;
   initials: string;
+  photo?: string;
 }
 
 export interface PricingTier {
@@ -28,8 +29,14 @@ export interface KeywordArea {
   keyword: string;
 }
 
+export type Brand = 'zach-gallis' | 'below-the-board'
+
 export interface Proposal {
   slug: string;
+  /** Brand variant — determines consultant name, contact info, favicon, and Calendly link */
+  brand?: Brand;
+  /** Access password for this proposal (plain text, stored client-side only) */
+  password?: string;
   meta: {
     title: string;
     preparedBy: string;
@@ -44,6 +51,7 @@ export interface Proposal {
     subTagline: string;
   };
   about: {
+    heading?: string;
     description: string;
     notableClients: string[];
   };
